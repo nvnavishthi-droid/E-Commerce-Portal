@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Single-file E-Commerce Demo</title>
+  <style>
+    :root{
+      --bg:#f8fafc; --card:#fff; --muted:#666; --accent:#0366d6;
+      --radius:10px; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body,#app{height:100%}
+    body{margin:0;background:var(--bg);color:#111}
+    header{background:var(--card);box-shadow:0 1px 6px rgba(0,0,0,0.06);padding:10px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:10}
+    .brand{font-weight:700;font-size:18px}
+    nav a{margin:0 6px;padding:8px 10px;border-radius:8px;color:inherit;text-decoration:none}
+    nav a.active{background:#eef2ff}
+    main{max-width:1100px;margin:20px auto;padding:12px}
+    .card{background:var(--card);padding:14px;border-radius:var(--radius);box-shadow:0 1px 4px rgba(2,6,23,0.04);margin-bottom:12px}
+    .grid{display:grid;gap:12px}
+    .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+    .grid.cols-2{grid-template-columns:repeat(2,1fr)}
+    .btn{display:inline-block;padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:transparent;cursor:pointer}
+    .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
+    input,select,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;box-sizing:border-box}
+    .small{font-size:13px;color:var(--muted)}
+    .muted{color:var(--muted)}
+    .flex{display:flex;gap:8px;align-items:center}
+    footer{max-width:1100px;margin:24px auto;padding:12px;color:var(--muted);font-size:13px}
+    .right{margin-left:auto}
+    .badge{background:#eef; padding:4px 8px;border-radius:999px;font-size:12px}
+    .danger{color:#b00020}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;border-bottom:1px solid #f0f0f0;text-align:left}
+    @media(max-width:800px){ .grid.cols-3{grid-template-columns:repeat(1,1fr)} .grid.cols-2{grid-template-columns:repeat(1,1fr)} nav{overflow:auto;white-space:nowrap} }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="brand">Bright Shop</div>
+      <nav id="nav"></nav>
+      <div id="userArea"></div>
+    </header>
+
+    <main id="main"></main>
+
+    <footer class="small">
+      This demo stores data in your browser's localStorage (users, orders, wishlist, reviews). Do Not use for production.
+    </footer>
+  </div>
+
+<script>
+/* ---------------------------
+  Simple single-file SPA demo
+  ---------------------------
+  Keys in localStorage:
+    - users: [{id, name, email, password}]           (password plaintext for demo)
+    - currentUser: {id, name, email}
+    - orders: [{id, title, price, date, userId}]
+    - wishlist: [{id, title, price, userId}]
+    - reviews: [{id, user, rating, comment, date}]
+    - tickets: [{id, name, email, message, date}]
+*/
+
+const storage = {
+  read(k, fallback){ try{ const r = localStorage.getItem(k); return r ? JSON.parse(r) : fallback }catch(e){return fallback} },
+  write(k, v){ localStorage.setItem(k, JSON.stringify(v)) },
+  remove(k){ localStorage.removeItem(k) }
+}
+
+/* demo product list */
+const PRODUCTS = [
+  { id: 1, title: 'Wireless Headphones', price: 99 },
+  { id: 2, title: 'Smartphone', price: 399 },
+  { id: 3, title: 'Coffee Maker', price: 49 },
+  { id: 4, title: 'Gaming Mouse', price: 59 },
+  { id: 5, title: '4K Monitor', price: 299 },
+  { id: 6, title: 'Backpack', price: 39 }
+]
+
+/* --- routing --- */
+const routes = {
+  '': renderHome,
+  '#/': renderHome,
+  '#/products': renderProducts,
+  '#/auth': renderAuth,
+  '#/orders': renderOrders,
+  '#/wishlist': renderWishlist,
+  '#/reviews': renderReviews,
+  '#/customer-care': renderCustomerCare,
+  '#/reports': renderReports,
+  '#/contact': renderContact,
+  '#/about': renderAbout
+}
+
+function navLinks(){
+  return [
+    {href:'#/', label:'Home'},
+    {href:'#/products', label:'Products'},
+    {href:'#/orders', label:'Orders'},
+    {href:'#/wishlist', label:'Wishlist'},
+    {href:'#/reviews', label:'Reviews'},
+    {href:'#/customer-care', label:'Customer Care'},
+    {href:'#/reports', label:'Reports'},
+    {href:'#/contact', label:'Contact'},
+    {href:'#/about', label:'About'},
+    {href:'#/auth', label:'Login / Register'}
+  ]
+}
+
+function renderNav(){
+  const nav = document.getElementById('nav')
+  nav.innerHTML = ''
+  const currentHash = location.hash || '#/'
+  navLinks().forEach(l=>{
+    const a = document.createElement('a')
+    a.href = l.href
+    a.textContent = l.label
+    if(currentHash === l.href || (currentHash==='' && l.href==='#/')) a.classList.add('active')
+    nav.appendChild(a)
+  })
+  renderUserArea()
+}
+
+/* show login / user info in header */
+function renderUserArea(){
+  const ua = document.getElementById('userArea')
+  const user = storage.read('currentUser', null)
+  ua.innerHTML = ''
+  if(user){
+    const span = document.createElement('span')
+    span.className = 'small'
+    span.innerHTML = `Hello, <strong>${escapeHtml(user.name)}</strong> <span class="badge">${user.email}</span>`
+    ua.appendChild(span)
+    const logout = document.createElement('button')
+    logout.className = 'btn right'
+    logout.textContent = 'Logout'
+    logout.onclick = ()=>{
+      storage.remove('currentUser')
+      alert('Logged out')
+      render()
+    }
+    ua.appendChild(logout)
+  } else {
+    const ln = document.createElement('a'); ln.href='#/auth'; ln.textContent='Login / Register'; ln.className='small'
+    ua.appendChild(ln)
+  }
+}
+
+/* --- utilities --- */
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])) }
+function formatDate(iso){ try{ return new Date(iso).toLocaleString() }catch(e){return iso} }
+function ensureArray(k){ const v = storage.read(k, null); if(!Array.isArray(v)){ storage.write(k, []); return [] } return v }
+function requireAuth(redirectHash='#/auth'){ const user = storage.read('currentUser', null); if(!user){ location.hash = redirectHash; return false } return true }
+
+/* --- renderers (pages) --- */
+function render(){
+  renderNav()
+  const main = document.getElementById('main')
+  main.innerHTML = ''
+  const page = routes[location.hash] || renderNotFound
+  page(main)
+}
+
+/* HOME */
+function renderHome(container){
+  const el = document.createElement('div')
+  el.className = 'card'
+  el.innerHTML = `
+    <h1 style="margin-top:0">Welcome to Bright Shop</h1>
+    <p class="muted">This single-file demo implements an e-commerce portal UI (frontend-only). Data is saved in your browser's <code>localStorage</code>. Use the navigation above to explore features.</p>
+    <div style="margin-top:12px" class="flex">
+      <a class="btn primary" href="#/products">Browse Products</a>
+      <a class="btn" href="#/auth">Login / Register</a>
+    </div>
+  `
+  container.appendChild(el)
+
+  // quick stats card
+  const orders = storage.read('orders', [])
+  const wishlist = storage.read('wishlist', [])
+  const reviews = storage.read('reviews', [])
+  const statCard = document.createElement('div')
+  statCard.className = 'card grid cols-3'
+  statCard.innerHTML = `
+    <div>
+      <div class="small">Total Orders</div>
+      <div style="font-size:20px;font-weight:700">${orders.length}</div>
+    </div>
+    <div>
+      <div class="small">Wishlist Items</div>
+      <div style="font-size:20px;font-weight:700">${wishlist.length}</div>
+    </div>
+    <div>
+      <div class="small">Total Reviews</div>
+      <div style="font-size:20px;font-weight:700">${reviews.length}</div>
+    </div>
+  `
+  container.appendChild(statCard)
+}
+
+/* PRODUCTS */
+function renderProducts(container){
+  const el = document.createElement('div')
+  el.className='card'
+  el.innerHTML = '<h2 style="margin-top:0">Products</h2><div class="muted">Click to add to wishlist or buy (demo)</div>'
+  container.appendChild(el)
+
+  const grid = document.createElement('div'); grid.className='grid cols-3'
+  PRODUCTS.forEach(p=>{
+    const c = document.createElement('div'); c.className='card'
+    c.innerHTML = `
+      <div style="font-weight:700">${escapeHtml(p.title)}</div>
+      <div class="muted">Price: $${p.price}</div>
+      <div style="margin-top:10px" class="flex">
+        <button class="btn" data-wl="${p.id}">Wishlist</button>
+        <button class="btn primary" data-buy="${p.id}">Buy</button>
+      </div>
+    `
+    grid.appendChild(c)
+  })
+  container.appendChild(grid)
+
+  // event handlers
+  grid.querySelectorAll('[data-wl]').forEach(btn=>{
+    btn.onclick = (ev)=>{
+      const id = Number(btn.getAttribute('data-wl'))
+      const p = PRODUCTS.find(x=>x.id===id)
+      if(!requireAuth()) return
+      const user = storage.read('currentUser')
+      const wl = ensureArray('wishlist')
+      if(wl.find(i=>i.id===p.id && i.userId===user.id)) { alert('Already in wishlist') ; return }
+      wl.push({...p, userId:user.id})
+      storage.write('wishlist', wl)
+      alert('Added to wishlist')
+      render()
+    }
+  })
+  grid.querySelectorAll('[data-buy]').forEach(btn=>{
+    btn.onclick = (ev)=>{
+      const id = Number(btn.getAttribute('data-buy'))
+      const p = PRODUCTS.find(x=>x.id===id)
+      if(!requireAuth()) return
+      const user = storage.read('currentUser')
+      const orders = ensureArray('orders')
+      orders.push({ id: Date.now(), title: p.title, price: p.price, date: new Date().toISOString(), userId:user.id })
+      storage.write('orders', orders)
+      alert('Order placed (demo)')
+      render()
+    }
+  })
+}
+
+/* AUTH (login/register) */
+function renderAuth(container){
+  // if logged in, show profile + option to logout
+  const current = storage.read('currentUser', null)
+  if(current){
+    const card = document.createElement('div'); card.className='card'
+    card.innerHTML = `
+      <h2 style="margin-top:0">Account</h2>
+      <div><strong>${escapeHtml(current.name)}</strong> — <span class="muted">${escapeHtml(current.email)}</span></div>
+      <div style="margin-top:12px" class="flex">
+        <button class="btn" id="logoutBtn">Logout</button>
+        <a href="#/orders" class="btn">My Orders</a>
+      </div>
+    `
+    container.appendChild(card)
+    card.querySelector('#logoutBtn').onclick = ()=>{
+      storage.remove('currentUser')
+      alert('Logged out')
+      render()
+    }
+    return
+  }
+
+  const card = document.createElement('div'); card.className='card'
+  card.innerHTML = `
+    <h2 style="margin-top:0">Login or Register</h2>
+    <div class="grid cols-2" style="gap:16px">
+      <div>
+        <h3>Login</h3>
+        <form id="loginForm">
+          <div><label class="small">Email</label><input name="email" type="email" required></div>
+          <div><label class="small">Password</label><input name="password" type="password" required minlength="6"></div>
+          <div style="margin-top:8px"><button class="btn primary" type="submit">Login</button></div>
+        </form>
+      </div>
+      <div>
+        <h3>Register</h3>
+        <form id="regForm">
+          <div><label class="small">Name</label><input name="name" required></div>
+          <div><label class="small">Email</label><input name="email" type="email" required></div>
+          <div><label class="small">Password</label><input name="password" type="password" required minlength="6"></div>
+          <div style="margin-top:8px"><button class="btn" type="submit">Register</button></div>
+        </form>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:10px">Passwords are stored in localStorage as plaintext in this demo. For production use a backend, hashed passwords, and secure authentication (JWT/session).</div>
+  `
+  container.appendChild(card)
+
+  // handlers
+  const loginForm = card.querySelector('#loginForm')
+  loginForm.onsubmit = (ev)=>{
+    ev.preventDefault()
+    const f = new FormData(loginForm)
+    const email = (f.get('email')||'').trim().toLowerCase()
+    const password = f.get('password')||''
+    if(!email || !password) return alert('Provide email and password')
+    const users = storage.read('users', [])
+    const user = users.find(u=>u.email.toLowerCase()===email && u.password===password)
+    if(!user) return alert('Invalid credentials')
+    storage.write('currentUser', { id:user.id, name:user.name, email:user.email })
+    alert('Logged in')
+    location.hash = '#/'
+    render()
+  }
+
+  const regForm = card.querySelector('#regForm')
+  regForm.onsubmit = (ev)=>{
+    ev.preventDefault()
+    const f = new FormData(regForm)
+    const name = (f.get('name')||'').trim()
+    const email = (f.get('email')||'').trim().toLowerCase()
+    const password = f.get('password')||''
+    if(!name) return alert('Name required')
+    if(!/^\S+@\S+\.\S+$/.test(email)) return alert('Invalid email')
+    if(password.length < 6) return alert('Password must be 6+ chars')
+    let users = storage.read('users', [])
+    if(users.find(u=>u.email.toLowerCase()===email)) return alert('Email already registered')
+    const newUser = { id: Date.now(), name, email, password }
+    users.push(newUser)
+    storage.write('users', users)
+    storage.write('currentUser', { id: newUser.id, name:newUser.name, email:newUser.email })
+    alert('Registered and logged in')
+    location.hash = '#/'
+    render()
+  }
+}
+
+/* ORDERS (protected) */
+function renderOrders(container){
+  if(!requireAuth()) return
+  const current = storage.read('currentUser')
+  const orders = storage.read('orders', []).filter(o=>o.userId===current.id)
+  const card = document.createElement('div'); card.className='card'
+  card.innerHTML = `<h2 style="margin-top:0">Your Orders</h2>`
+  if(orders.length===0){
+    card.innerHTML += `<div class="muted">No orders yet. Buy something from Products.</div>`
+  } else {
+    const table = document.createElement('table')
+    table.innerHTML = `<thead><tr><th>Product</th><th>Price</th><th>Date</th><th></th></tr></thead>`
+    const tbody = document.createElement('tbody')
+    orders.slice().reverse().forEach(o=>{
+      const tr = document.createElement('tr')
+      tr.innerHTML = `<td>${escapeHtml(o.title)}</td><td>$${o.price}</td><td>${formatDate(o.date)}</td><td><button class="btn" data-id="${o.id}">Report</button></td>`
+      tbody.appendChild(tr)
+    })
+    table.appendChild(tbody)
+    card.appendChild(table)
+  }
+  container.appendChild(card)
+
+  // small reporting action (demo)
+  card.querySelectorAll('[data-id]').forEach(b=>{
+    b.onclick = ()=>{
+      alert('Report created for this order (demo). For production implement backend ticketing.')
+    }
+  })
+}
+
+/* WISHLIST (protected) */
+function renderWishlist(container){
+  if(!requireAuth()) return
+  const current = storage.read('currentUser')
+  let items = storage.read('wishlist', []).filter(i=>i.userId===current.id)
+  const card = document.createElement('div'); card.className='card'
+  card.innerHTML = `<h2 style="margin-top:0">Wishlist</h2>`
+  if(items.length===0){ card.innerHTML += `<div class="muted">No items in wishlist.</div>` }
+  else {
+    const list = document.createElement('div')
+    list.className='grid cols-2'
+    items.forEach(i=>{
+      const it = document.createElement('div'); it.className='card'
+      it.innerHTML = `<div style="font-weight:700">${escapeHtml(i.title)}</div><div class="muted">$${i.price}</div>
+        <div style="margin-top:8px" class="flex"><button class="btn" data-remove="${i.id}">Remove</button><button class="btn primary" data-buy="${i.id}">Buy</button></div>`
+      list.appendChild(it)
+    })
+    card.appendChild(list)
+  }
+  container.appendChild(card)
+
+  card.querySelectorAll('[data-remove]').forEach(b=>{
+    b.onclick = ()=>{
+      const id = Number(b.getAttribute('data-remove'))
+      let wl = storage.read('wishlist', [])
+      wl = wl.filter(x=>x.id!==id || x.userId!==storage.read('currentUser').id ? true : false)
+      storage.write('wishlist', wl)
+      alert('Removed')
+      render()
+    }
+  })
+  card.querySelectorAll('[data-buy]').forEach(b=>{
+    b.onclick = ()=>{
+      const id = Number(b.getAttribute('data-buy'))
+      const item = storage.read('wishlist', []).find(x=>x.id===id && x.userId===storage.read('currentUser').id)
+      if(!item) return alert('Item not found')
+      const orders = storage.read('orders', [])
+      orders.push({ id: Date.now(), title: item.title, price: item.price, date: new Date().toISOString(), userId:storage.read('currentUser').id })
+      storage.write('orders', orders)
+      // optional: remove from wishlist
+      storage.write('wishlist', storage.read('wishlist', []).filter(x=>!(x.id===id && x.userId===storage.read('currentUser').id)))
+      alert('Order placed (demo)')
+      render()
+    }
+  })
+}
+
+/* REVIEWS (open to all) */
+function renderReviews(container){
+  const card = document.createElement('div'); card.className='card'
+  card.innerHTML = `
+    <h2 style="margin-top:0">Comments & Reviews</h2>
+    <form id="reviewForm">
+      <div style="margin-bottom:8px"><label class="small">Rating</label><select name="rating">${[5,4,3,2,1].map(v=>`<option value="${v}">${v}</option>`).join('')}</select></div>
+      <div style="margin-bottom:8px"><label class="small">Comment</label><textarea name="comment" required rows="3"></textarea></div>
+      <button class="btn primary" type="submit">Submit Review</button>
+    </form>
+  `
+  container.appendChild(card)
+
+  const listCard = document.createElement('div'); listCard.className='card'; listCard.style.marginTop='12px'
+  listCard.innerHTML = `<h3 style="margin-top:0">Recent Reviews</h3>`
+  const reviews = storage.read('reviews', []).slice().reverse()
+  if(reviews.length===0) listCard.innerHTML += `<div class="muted">No reviews yet.</div>`
+  else {
+    const wrapper = document.createElement('div')
+    reviews.forEach(r=>{
+      const rEl = document.createElement('div'); rEl.className='card'
+      rEl.style.marginBottom='8px'
+      rEl.innerHTML = `<div class="flex"><div style="font-weight:700">${escapeHtml(r.user)}</div><div class="right small">${formatDate(r.date)}</div></div>
+        <div class="small muted">Rating: ${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
+        <p>${escapeHtml(r.comment)}</p>`
+      wrapper.appendChild(rEl)
+    })
+    listCard.appendChild(wrapper)
+  }
+  container.appendChild(listCard)
+
+  // handler
+  card.querySelector('#reviewForm').onsubmit = (ev)=>{
+    ev.preventDefault()
+    const f = new FormData(ev.target)
+    const rating = Number(f.get('rating'))
+    const comment = (f.get('comment')||'').trim()
+    if(!comment) return alert('Write a comment')
+    const user = storage.read('currentUser', { name:'Guest' })
+    const reviewsArr = storage.read('reviews', [])
+    reviewsArr.push({ id: Date.now(), user: user.name, rating, comment, date: new Date().toISOString() })
+    storage.write('reviews', reviewsArr)
+    alert('Review submitted')
+    render()
+  }
+}
+
+/* Customer Care */
+function renderCustomerCare(container){
+  const card = document.createElement('div'); card.className='card'
+  card.innerHTML = `
+    <h2 style="margin-top:0">Customer Care</h2>
+    <form id="ticketForm">
+      <div><label class="small">Name</label><input name="name" required></div>
+      <div><label class="small">Email</label><input name="email" type="email" required></div>
+      <div><label class="small">Message</label><textarea name="message" required rows="4"></textarea></div>
+      <div style="margin-top:8px"><button class="btn primary" type="submit">Submit Ticket</button></div>
+    </form>
+    <div class="muted" style="margin-top:10px">This demo only saves the ticket locally. In production send to backend support system.</div>
+  `
+  container.appendChild(card)
+
+  card.querySelector('#ticketForm').onsubmit = (ev)=>{
+    ev.preventDefault()
+    const f = new FormData(ev.target)
+    const name = (f.get('name')||'').trim()
+    const email = (f.get('email')||'').trim()
+    const message = (f.get('message')||'').trim()
+    if(!name||!email||!message) return alert('All fields required')
+    const tickets = storage.read('tickets', [])
+    tickets.push({ id: Date.now(), name, email, message, date: new Date().toISOString() })
+    storage.write('tickets', tickets)
+    alert('Ticket submitted. Support will contact you (demo).')
+    render()
+  }
+}
+
+/* Reports */
+function renderReports(container){
+  const ordersAll = storage.read('orders', [])
+  const wishlistAll = storage.read('wishlist', [])
+  const reviewsAll = storage.read('reviews', [])
+  const card = document.createElement('div'); card.className='card'
+  card.innerHTML = `
+    <h2 style="margin-top:0">Reporting</h2>
+    <div class="grid cols-3">
+      <div class="card"><div class="small">Total Orders</div><div style="font-size:20px;font-weight:700">${ordersAll.length}</div></div>
+      <div class="card"><div class="small">Wishlist Items</div><div style="font-size:20px;font-weight:700">${wishlistAll.length}</div></div>
+      <div class="card"><div class="small">Total Reviews</div><div style="font-size:20px;font-weight:700">${reviewsAll.length}</div></div>
+    </div>
+    <div style="margin-top:12px">
+      <h3>Recent Orders</h3>
+      ${ordersAll.slice().reverse().slice(0,6).map(o=>`<div class="card" style="margin-top:8px">${escapeHtml(o.title)} — $${o.price} — <span class="muted">${formatDate(o.date)}</span></div>`).join('') || '<div class="muted">No recent orders</div>'}
+    </div>
+  `
+  container.appendChild(card)
+}
+
+/* Contact & About simple */
+function renderContact(container){
+  const card = document.createElement('div'); card.className='card'
+  card.innerHTML = `<h2 style="margin-top:0">Contact Us</h2><div class="muted">Email: support@myshop.demo — Phone: +1-800-111-222 (demo)</div>`
+  container.appendChild(card)
+}
+function renderAbout(container){
+  const card = document.createElement('div'); card.className='card'
+  card.innerHTML = `<h2 style="margin-top:0">About</h2><p class="muted">This is a single-file demo app to help you prototype UI and flows. For production, add a secure backend and database.</p>`
+  container.appendChild(card)
+}
+
+/* Not found */
+function renderNotFound(container){
+  const el = document.createElement('div'); el.className='card'
+  el.innerHTML = `<h2 style="margin-top:0">Page not found</h2><p class="muted">The page you're looking for doesn't exist.</p>`
+  container.appendChild(el)
+}
+
+/* init */
+window.addEventListener('hashchange', render)
+window.addEventListener('load', ()=>{
+  // ensure keys exist
+  if(storage.read('users', null) === null) storage.write('users', [])
+  if(storage.read('orders', null) === null) storage.write('orders', [])
+  if(storage.read('wishlist', null) === null) storage.write('wishlist', [])
+  if(storage.read('reviews', null) === null) storage.write('reviews', [])
+  if(storage.read('tickets', null) === null) storage.write('tickets', [])
+  // render
+  render()
+})
+
+/* small helper: allow pressing Enter to submit login/register in header (optional) */
+// Not used — forms have submit buttons already
+
+</script>
+</body>
+</html>
